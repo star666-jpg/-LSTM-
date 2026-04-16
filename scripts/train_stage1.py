@@ -24,6 +24,7 @@ from sklearn.metrics import r2_score
 from src.data.indicators import load_price, compute_indicators
 from src.data.preprocess  import split_dataset
 from src.models.tcn_lstm_transformer import TCNLSTMTransformer
+from src.models.hmoe import HMoE
 
 
 # ─────────────────────────────────────────────
@@ -54,8 +55,8 @@ def evaluate(model, loader, scaler, n_features, device):
     preds, trues = [], []
     for X, y in loader:
         X, y = X.to(device), y.to(device)
-        pred = model(X)
-        preds.append(pred.cpu().numpy())
+        out  = model(X)
+        preds.append(out["price"].cpu().numpy())
         trues.append(y.cpu().numpy())
 
     preds = np.concatenate(preds).reshape(-1, 1)
@@ -131,15 +132,27 @@ def main():
           f"验证: {len(splits['X_val'])}  "
           f"测试: {len(splits['X_test'])}")
 
-    # ── 模型
+    # ── 模型（TCN-LSTM-Transformer → H-MoE）
     print("\n[2/4] 构建模型...")
+    feat_dim = cfg["model"]["feat_dim"]
     backbone = TCNLSTMTransformer(
         in_features=n_features,
-        out_dim=cfg["model"]["feat_dim"],
+        out_dim=feat_dim,
     ).to(device)
-    head  = nn.Linear(cfg["model"]["feat_dim"], 1).to(device)
-    model = nn.Sequential(backbone, head)
+    hmoe = HMoE(in_dim=feat_dim).to(device)
 
+    # 合并为一个模块方便保存
+    class Stage1Model(nn.Module):
+        def __init__(self, backbone, hmoe):
+            super().__init__()
+            self.backbone = backbone
+            self.hmoe     = hmoe
+
+        def forward(self, x):
+            feat = self.backbone(x)
+            return self.hmoe(feat)
+
+    model    = Stage1Model(backbone, hmoe).to(device)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"      可训练参数: {n_params:,}")
 
@@ -169,7 +182,9 @@ def main():
         for X, y in train_loader:
             X, y = X.to(device), y.to(device)
             optimizer.zero_grad()
-            loss = criterion(model(X), y)
+            out  = model(X)
+            # 主任务损失（回归）+ H-MoE 负载均衡辅助损失
+            loss = criterion(out["price"], y) + out["aux_loss"]
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
@@ -182,7 +197,8 @@ def main():
         with torch.no_grad():
             for X, y in val_loader:
                 X, y = X.to(device), y.to(device)
-                val_loss += criterion(model(X), y).item()
+                out = model(X)
+                val_loss += criterion(out["price"], y).item()
         val_loss /= len(val_loader)
 
         scheduler.step(val_loss)
