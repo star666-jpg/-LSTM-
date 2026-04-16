@@ -2,6 +2,16 @@
 数据预处理模块
 负责：滑窗切分、MinMax 标准化、训练/验证/测试集划分。
 划分比例参照孙惠莹(2025) §3.2：6 : 1.5 : 2.5
+
+典型用法（含情感特征）：
+    from src.data.indicators import load_price, compute_indicators
+    from src.sentiment.snowlp_scorer import merge_with_indicators
+    from src.data.preprocess import split_dataset
+
+    df = compute_indicators(load_price("data/raw/moutai_price.csv"))
+    df = merge_with_indicators(df, "data/processed/moutai_daily_sentiment.csv")
+    feature_cols = [c for c in df.columns if c != "date"]
+    splits = split_dataset(df, feature_cols, window=64)
 """
 
 from __future__ import annotations
