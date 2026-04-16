@@ -1,0 +1,37 @@
+# ============================================================
+# 项目超参数配置
+# 参照孙惠莹(2025) 第四章实验设置
+# ============================================================
+
+data:
+  stock_code: "600519"
+  price_csv: "data/raw/moutai_price.csv"
+  comments_csv: "data/raw/贵州茅台600519_股吧评论.csv"
+  indicator_csv: "data/processed/moutai_technical_indicators.csv"
+  sentiment_csv: "data/processed/moutai_daily_sentiment.csv"
+  split_ratio: [0.60, 0.15, 0.25]   # train / val / test
+  window: 64          # 输入滑窗长度（孙惠莹第四章实验设置）
+  horizon: 1          # 预测步长（次日）
+
+model:
+  feat_dim: 128       # 各支路统一输出维度
+  ts_in_features: 21  # 技术指标列数（15维 + 情感均值/标准差/数量 等）
+  bert_name: "bert-base-chinese"
+  bert_freeze_layers: 10
+  hmoe_n_experts: 4
+  dropout: 0.3
+
+training:
+  epochs: 50          # 孙惠莹第四章实验：epochs=50
+  batch_size: 32      # 孙惠莹第四章实验：batch=32
+  lr: 0.001
+  weight_decay: 1.0e-4
+  loss_weights:
+    regression: 0.5
+    classification: 0.5
+  early_stopping_patience: 10
+  device: "cuda"      # 改为 "cpu" 如无 GPU
+
+backtest:
+  commission: 0.0015  # 手续费 0.15%（昝泓含论文设定）
+  risk_free_rate: 0.03  # 无风险利率 3%（A股市场惯用）
