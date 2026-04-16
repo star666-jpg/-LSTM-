@@ -9,9 +9,17 @@ data:
   comments_csv: "data/raw/贵州茅台600519_股吧评论.csv"
   indicator_csv: "data/processed/moutai_technical_indicators.csv"
   sentiment_csv: "data/processed/moutai_daily_sentiment.csv"
+
+  # 第一阶段（老师要求）：5维原始特征，70/30划分
+  phase1:
+    features: ["open", "close", "high", "low", "volume"]
+    split_ratio: [0.70, 0.30]        # train / test
+    window: 30
+
+  # 后续阶段：全技术指标，60/15/25划分
   split_ratio: [0.60, 0.15, 0.25]   # train / val / test
-  window: 64          # 输入滑窗长度（孙惠莹第四章实验设置）
-  horizon: 1          # 预测步长（次日）
+  window: 64
+  horizon: 1
 
 model:
   feat_dim: 128       # 各支路统一输出维度
