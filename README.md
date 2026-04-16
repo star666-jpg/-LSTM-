@@ -131,11 +131,26 @@ python tests/test_sentiment.py
 
 ---
 
-## 参考论文
+## 参考文献
 
-- 孙惠莹. 融合情感分析的改进LSTM模型股票预测[D]. 大连理工大学, 2025.
-- 昝泓含. 基于多模态数据融合的股票趋势预测模型[D]. 燕山大学, 2024.
-- Bai S, et al. An Empirical Evaluation of Generic Convolutional and Recurrent Networks for Sequence Modeling[J]. arXiv, 2018.
-- Vaswani A, et al. Attention Is All You Need[C]. NeurIPS, 2017.
-- Devlin J, et al. BERT: Pre-training of Deep Bidirectional Transformers[C]. NAACL, 2019.
-- Shazeer N, et al. Outrageously Large Neural Networks: The Sparsely-Gated MoE Layer[C]. ICLR, 2017.
+完整文献列表见 [docs/参考文献.md](docs/参考文献.md)，共 26 篇，按模块分类。
+
+**核心引用：**
+
+| 模块 | 关键论文 |
+|------|---------|
+| 项目参照 | 孙惠莹(2025), 昝泓含(2024) |
+| LSTM | Hochreiter & Schmidhuber, Neural Computation, 1997 |
+| TCN | Bai et al., arXiv, 2018 |
+| Transformer | Vaswani et al., NeurIPS, 2017 |
+| 注意力机制 | Bahdanau et al., ICLR, 2015 |
+| BERT | Devlin et al., NAACL, 2019 |
+| 通道注意力 | Hu et al.(SE-Net), CVPR, 2018 |
+| 空间注意力 | Woo et al.(CBAM), ECCV, 2018 |
+| MoE原始 | Jacobs et al., Neural Computation, 1991 |
+| 稀疏MoE | Shazeer et al., ICLR, 2017 |
+| 负载均衡 | Fedus et al.(Switch Transformer), JMLR, 2022 |
+| 多模态融合 | Baltrusaitis et al., TPAMI, 2019 |
+| 跨模态注意力 | Lu et al.(ViLBERT), NeurIPS, 2019 |
+| 金融情感 | Araci(FinBERT), arXiv, 2019 |
+| 股票预测综述 | Henrique et al., Expert Systems, 2019 |
