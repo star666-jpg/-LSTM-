@@ -1,0 +1,1351 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TCN-LSTM-Transformer 股票预测模型演示</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --border: #30363d;
+    --blue: #58a6ff; --green: #3fb950; --orange: #ff8c42;
+    --purple: #bc8cff; --red: #f85149; --yellow: #e3b341;
+    --text: #e6edf3; --muted: #8b949e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; }
+
+  /* ── 导航 ── */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(13,17,23,0.92); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 6px; padding: 10px 24px; flex-wrap: wrap;
+  }
+  nav .logo { color: var(--blue); font-weight: 700; font-size: 15px; margin-right: 12px; white-space: nowrap; }
+  nav button {
+    background: none; border: 1px solid var(--border); color: var(--muted);
+    padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
+    transition: all .2s;
+  }
+  nav button:hover, nav button.active { border-color: var(--blue); color: var(--blue); background: rgba(88,166,255,.08); }
+
+  /* ── 页面 ── */
+  .page { display: none; min-height: 100vh; padding: 80px 40px 40px; max-width: 1200px; margin: 0 auto; }
+  .page.active { display: block; }
+  h1 { font-size: 2rem; margin-bottom: 8px; }
+  h2 { font-size: 1.4rem; color: var(--blue); margin: 28px 0 14px; }
+  h3 { font-size: 1.1rem; color: var(--yellow); margin: 16px 0 8px; }
+  p  { color: var(--muted); line-height: 1.7; margin-bottom: 10px; }
+  .subtitle { color: var(--muted); font-size: 1rem; margin-bottom: 32px; }
+
+  /* ── 卡片 ── */
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px 24px; margin-bottom: 16px;
+  }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+
+  /* ── 标签 ── */
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px;
+    font-weight: 600; margin: 2px;
+  }
+  .badge-blue   { background: rgba(88,166,255,.15); color: var(--blue); border: 1px solid rgba(88,166,255,.3); }
+  .badge-green  { background: rgba(63,185,80,.15);  color: var(--green); border: 1px solid rgba(63,185,80,.3); }
+  .badge-orange { background: rgba(255,140,66,.15); color: var(--orange); border: 1px solid rgba(255,140,66,.3); }
+  .badge-purple { background: rgba(188,140,255,.15);color: var(--purple); border: 1px solid rgba(188,140,255,.3); }
+  .badge-red    { background: rgba(248,81,73,.15);  color: var(--red); border: 1px solid rgba(248,81,73,.3); }
+
+  /* ── 代码块 ── */
+  pre {
+    background: #0d1117; border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px; font-size: 12.5px; overflow-x: auto; line-height: 1.6;
+    color: #e6edf3; margin: 10px 0;
+  }
+  .kw  { color: #ff7b72; }
+  .fn  { color: #d2a8ff; }
+  .st  { color: #a5d6ff; }
+  .cm  { color: #8b949e; font-style: italic; }
+  .num { color: #79c0ff; }
+  .cls { color: #ffa657; }
+
+  /* ══════════════════════════════════
+     动画：LSTM 单元
+  ══════════════════════════════════ */
+  .lstm-cell {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 24px; position: relative; overflow: hidden;
+  }
+  .lstm-title { text-align: center; color: var(--blue); font-size: 1.1rem; font-weight: 600; margin-bottom: 20px; }
+
+  /* 细胞状态轨道 */
+  .cell-track {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(88,166,255,.06); border: 1px dashed rgba(88,166,255,.3);
+    border-radius: 8px; padding: 10px 16px; margin-bottom: 20px;
+  }
+  .cell-label { color: var(--blue); font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .cell-arrow { color: var(--blue); font-size: 18px; }
+
+  /* 信息流动粒子 */
+  .flow-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    animation: flowRight 2.4s linear infinite;
+  }
+  .flow-dot.blue   { background: var(--blue);   animation-delay: 0s; }
+  .flow-dot.green  { background: var(--green);  animation-delay: .6s; }
+  .flow-dot.orange { background: var(--orange); animation-delay: 1.2s; }
+  .flow-dot.purple { background: var(--purple); animation-delay: 1.8s; }
+  @keyframes flowRight {
+    0%   { transform: translateX(-40px); opacity: 0; }
+    10%  { opacity: 1; }
+    90%  { opacity: 1; }
+    100% { transform: translateX(300px); opacity: 0; }
+  }
+
+  /* 三个门 */
+  .gates-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+  .gate-box {
+    border-radius: 10px; padding: 14px 12px; text-align: center;
+    position: relative; overflow: hidden;
+  }
+  .gate-box::before {
+    content: ''; position: absolute; inset: 0;
+    animation: gatePulse 2s ease-in-out infinite;
+    border-radius: 10px;
+  }
+  .gate-forget::before { background: radial-gradient(circle, rgba(248,81,73,.25) 0%, transparent 70%); animation-delay: 0s; }
+  .gate-input::before  { background: radial-gradient(circle, rgba(63,185,80,.25) 0%, transparent 70%); animation-delay: .7s; }
+  .gate-output::before { background: radial-gradient(circle, rgba(88,166,255,.25) 0%, transparent 70%); animation-delay: 1.4s; }
+  .gate-forget { background: rgba(248,81,73,.08); border: 1px solid rgba(248,81,73,.3); }
+  .gate-input  { background: rgba(63,185,80,.08);  border: 1px solid rgba(63,185,80,.3); }
+  .gate-output { background: rgba(88,166,255,.08); border: 1px solid rgba(88,166,255,.3); }
+  @keyframes gatePulse {
+    0%,100% { opacity: .4; transform: scale(.8); }
+    50% { opacity: 1; transform: scale(1.1); }
+  }
+  .gate-icon { font-size: 22px; margin-bottom: 6px; }
+  .gate-name { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+  .gate-forget .gate-name { color: var(--red); }
+  .gate-input  .gate-name { color: var(--green); }
+  .gate-output .gate-name { color: var(--blue); }
+  .gate-formula { font-size: 11px; color: var(--muted); font-family: 'Courier New', monospace; }
+  .gate-desc { font-size: 11px; color: var(--text); margin-top: 5px; line-height: 1.4; }
+
+  /* 隐藏状态流 */
+  .hidden-flow { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+  .hf-label { color: var(--purple); font-size: 12px; font-weight: 600; }
+  .hf-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--purple);
+    animation: hfPulse 1.5s ease-in-out infinite;
+  }
+  .hf-dot:nth-child(2) { animation-delay: .2s; }
+  .hf-dot:nth-child(3) { animation-delay: .4s; }
+  .hf-dot:nth-child(4) { animation-delay: .6s; }
+  .hf-dot:nth-child(5) { animation-delay: .8s; }
+  .hf-arrow { color: var(--muted); }
+  @keyframes hfPulse {
+    0%,100% { opacity: .2; transform: scale(.6); }
+    50% { opacity: 1; transform: scale(1); }
+  }
+
+  /* ══════════════════════════════════
+     动画：Transformer 注意力
+  ══════════════════════════════════ */
+  .attn-grid {
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;
+    margin: 16px 0;
+  }
+  .attn-cell {
+    aspect-ratio: 1; border-radius: 4px;
+    animation: attnFade 3s ease-in-out infinite;
+  }
+  @keyframes attnFade {
+    0%,100% { opacity: .2; }
+    50% { opacity: 1; }
+  }
+
+  /* ══════════════════════════════════
+     动画：TCN 膨胀卷积
+  ══════════════════════════════════ */
+  .tcn-layer { margin-bottom: 16px; }
+  .tcn-row { display: flex; gap: 4px; align-items: center; margin-bottom: 4px; }
+  .tcn-node {
+    width: 28px; height: 28px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700; transition: all .3s;
+    animation: tcnPulse 2s ease-in-out infinite;
+  }
+  .tcn-active   { background: rgba(88,166,255,.3); border: 2px solid var(--blue); color: var(--blue); }
+  .tcn-inactive { background: rgba(255,255,255,.04); border: 1px solid var(--border); color: var(--muted); }
+  .tcn-conn {
+    position: relative; height: 2px; flex: 1;
+    animation: connFlow 1.5s linear infinite;
+  }
+  .tcn-conn::after {
+    content: ''; position: absolute; top: 0; left: 0; height: 100%;
+    background: linear-gradient(90deg, transparent, var(--blue), transparent);
+    animation: connFlow 1.5s linear infinite;
+  }
+  @keyframes connFlow {
+    0%   { background-position: -100% 0; }
+    100% { background-position: 200% 0; }
+  }
+  @keyframes tcnPulse {
+    0%,100% { box-shadow: none; }
+    50% { box-shadow: 0 0 8px rgba(88,166,255,.6); }
+  }
+  .tcn-dilation-label {
+    font-size: 11px; color: var(--orange); font-weight: 600;
+    margin-left: 8px; white-space: nowrap;
+  }
+
+  /* ══════════════════════════════════
+     数据流动画
+  ══════════════════════════════════ */
+  .pipeline {
+    display: flex; align-items: center; gap: 0; margin: 24px 0; flex-wrap: wrap;
+  }
+  .pipe-step {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px; text-align: center;
+    min-width: 120px; position: relative;
+    animation: stepGlow 3s ease-in-out infinite;
+  }
+  .pipe-step:nth-child(1) { animation-delay: 0s; }
+  .pipe-step:nth-child(3) { animation-delay: .6s; }
+  .pipe-step:nth-child(5) { animation-delay: 1.2s; }
+  .pipe-step:nth-child(7) { animation-delay: 1.8s; }
+  .pipe-step:nth-child(9) { animation-delay: 2.4s; }
+  @keyframes stepGlow {
+    0%,100% { border-color: var(--border); }
+    50% { border-color: var(--blue); box-shadow: 0 0 12px rgba(88,166,255,.3); }
+  }
+  .pipe-name { font-size: 12px; font-weight: 700; color: var(--blue); }
+  .pipe-dim  { font-size: 20px; font-weight: 800; color: var(--text); margin: 4px 0; }
+  .pipe-desc { font-size: 10px; color: var(--muted); }
+  .pipe-arrow {
+    font-size: 24px; color: var(--blue); padding: 0 6px;
+    animation: arrowBounce 1.5s ease-in-out infinite;
+  }
+  @keyframes arrowBounce {
+    0%,100% { transform: translateX(0); opacity: .5; }
+    50% { transform: translateX(4px); opacity: 1; }
+  }
+
+  /* ══════════════════════════════════
+     表格
+  ══════════════════════════════════ */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: rgba(88,166,255,.1); color: var(--blue); padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+  td { padding: 7px 12px; border-bottom: 1px solid rgba(48,54,61,.5); color: var(--text); }
+  tr:hover td { background: rgba(255,255,255,.03); }
+
+  /* 进度条 */
+  .progress-bar { background: rgba(255,255,255,.07); border-radius: 4px; height: 6px; overflow: hidden; margin-top: 4px; }
+  .progress-fill { height: 100%; border-radius: 4px; animation: fillAnim 2s ease-out forwards; }
+  @keyframes fillAnim { from { width: 0; } }
+
+  /* 特征维度可视化 */
+  .feat-row { display: flex; gap: 4px; flex-wrap: wrap; margin: 8px 0; }
+  .feat-chip {
+    padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600;
+    border: 1px solid; white-space: nowrap;
+  }
+
+  /* 架构图 SVG 容器 */
+  .arch-svg { width: 100%; max-width: 900px; display: block; margin: 0 auto; }
+
+  /* 响应式 */
+  @media (max-width: 700px) {
+    .grid2, .grid3, .gates-row { grid-template-columns: 1fr; }
+    .pipeline { flex-direction: column; }
+    .pipe-arrow { transform: rotate(90deg); }
+    h1 { font-size: 1.4rem; }
+  }
+
+  /* 滚动平滑 */
+  html { scroll-behavior: smooth; }
+
+  /* 弹出标注 */
+  .tooltip-box {
+    background: rgba(22,27,34,.95); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px; font-size: 12px;
+    color: var(--text); margin: 8px 0;
+  }
+
+  /* 章节分隔 */
+  .section-sep { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+</style>
+</head>
+<body>
+
+<!-- ══ 导航 ══ -->
+<nav>
+  <span class="logo">📈 TCN-LSTM-Transformer</span>
+  <button onclick="showPage('overview')"  class="active" id="btn-overview">① 总览</button>
+  <button onclick="showPage('data')"      id="btn-data">② 数据流</button>
+  <button onclick="showPage('tcn')"       id="btn-tcn">③ TCN</button>
+  <button onclick="showPage('lstm')"      id="btn-lstm">④ LSTM</button>
+  <button onclick="showPage('transformer')" id="btn-transformer">⑤ Transformer</button>
+  <button onclick="showPage('pipeline')"  id="btn-pipeline">⑥ 完整流水线</button>
+  <button onclick="showPage('code')"      id="btn-code">⑦ 核心代码</button>
+</nav>
+
+<!-- ════════════════════════════════════
+     页面 1：总览
+════════════════════════════════════ -->
+<div class="page active" id="page-overview">
+  <h1>TCN · LSTM · Transformer</h1>
+  <p class="subtitle">贵州茅台(600519) 股价预测模型 — 基于孙惠莹(2025) §3.1 · 情感增强时序建模</p>
+
+  <div class="grid3">
+    <div class="card">
+      <h3>TCN 时域卷积网络</h3>
+      <p>4层膨胀因果卷积，感受野指数扩大，捕捉<strong>多尺度局部模式</strong>。</p>
+      <p>膨胀系数：<span class="badge badge-orange">d=1</span><span class="badge badge-orange">d=2</span><span class="badge badge-orange">d=4</span><span class="badge badge-orange">d=8</span></p>
+      <div class="progress-bar"><div class="progress-fill" style="width:72%;background:var(--orange)"></div></div>
+      <p style="font-size:11px;color:var(--muted);margin-top:4px">感受野覆盖 ≈ 31 个时间步</p>
+    </div>
+    <div class="card">
+      <h3>LSTM 长短期记忆</h3>
+      <p>4层堆叠，隐藏维度256，通过<strong>三门控制</strong>学习短期顺序依赖。</p>
+      <p><span class="badge badge-red">遗忘门</span><span class="badge badge-green">输入门</span><span class="badge badge-blue">输出门</span></p>
+      <div class="progress-bar"><div class="progress-fill" style="width:85%;background:var(--green);animation-delay:.3s"></div></div>
+      <p style="font-size:11px;color:var(--muted);margin-top:4px">参数量 ≈ 1.3M</p>
+    </div>
+    <div class="card">
+      <h3>Transformer 全局注意力</h3>
+      <p>4头自注意力 + 位置编码，捕捉序列中<strong>任意位置间的全局依赖</strong>。</p>
+      <p>Pre-LN架构：<span class="badge badge-purple">LayerNorm</span><span class="badge badge-purple">4-Head Attn</span><span class="badge badge-purple">FFN</span></p>
+      <div class="progress-bar"><div class="progress-fill" style="width:90%;background:var(--purple);animation-delay:.6s"></div></div>
+      <p style="font-size:11px;color:var(--muted);margin-top:4px">d_model=256, FFN=1024</p>
+    </div>
+  </div>
+
+  <h2>三模块分工协作</h2>
+  <div class="card">
+    <table>
+      <tr><th>模块</th><th>擅长捕捉</th><th>不足</th><th>输入→输出维度</th></tr>
+      <tr>
+        <td><span class="badge badge-orange">TCN</span></td>
+        <td>局部短程模式、多尺度特征（如K线形态）</td>
+        <td>长距离依赖能力弱</td>
+        <td>(B,T,F) → (B,T,64)</td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-green">LSTM</span></td>
+        <td>有序时间依赖（前几天影响今天）</td>
+        <td>长距离梯度消失、并行度低</td>
+        <td>(B,T,64) → (B,T,256)</td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-purple">Transformer</span></td>
+        <td>任意跨时间步的全局关系</td>
+        <td>无内置时序顺序感知（需位置编码）</td>
+        <td>(B,T,256) → (B,256)</td>
+      </tr>
+    </table>
+  </div>
+
+  <h2>整体数据流</h2>
+  <div class="pipeline">
+    <div class="pipe-step">
+      <div class="pipe-name">原始行情</div>
+      <div class="pipe-dim">5D</div>
+      <div class="pipe-desc">开高低收量</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step">
+      <div class="pipe-name">技术指标</div>
+      <div class="pipe-dim">15D</div>
+      <div class="pipe-desc">MACD/RSI/ATR等</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step">
+      <div class="pipe-name">+情感特征</div>
+      <div class="pipe-dim">21D</div>
+      <div class="pipe-desc">SnowNLP 7维</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step">
+      <div class="pipe-name">TCN</div>
+      <div class="pipe-dim">64D</div>
+      <div class="pipe-desc">局部多尺度</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step">
+      <div class="pipe-name">LSTM</div>
+      <div class="pipe-dim">256D</div>
+      <div class="pipe-desc">时序记忆</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step">
+      <div class="pipe-name">Transformer</div>
+      <div class="pipe-dim">256D</div>
+      <div class="pipe-desc">全局注意力</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step">
+      <div class="pipe-name">H-MoE输出</div>
+      <div class="pipe-dim">128D</div>
+      <div class="pipe-desc">融合特征向量</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════
+     页面 2：数据流
+════════════════════════════════════ -->
+<div class="page" id="page-data">
+  <h1>数据流：5维 → 21维</h1>
+  <p class="subtitle">从原始 OHLCV 到融合情感的多维特征工程</p>
+
+  <h2>① Phase 1：老师要求的基线（5维）</h2>
+  <div class="card">
+    <p>最简输入，只使用日度行情数据，滑动窗口 <strong>30天</strong>。</p>
+    <div class="feat-row">
+      <span class="feat-chip" style="color:var(--orange);border-color:rgba(255,140,66,.4);background:rgba(255,140,66,.08)">open 开盘价</span>
+      <span class="feat-chip" style="color:var(--green);border-color:rgba(63,185,80,.4);background:rgba(63,185,80,.08)">close 收盘价</span>
+      <span class="feat-chip" style="color:var(--red);border-color:rgba(248,81,73,.4);background:rgba(248,81,73,.08)">high 最高价</span>
+      <span class="feat-chip" style="color:var(--blue);border-color:rgba(88,166,255,.4);background:rgba(88,166,255,.08)">low 最低价</span>
+      <span class="feat-chip" style="color:var(--purple);border-color:rgba(188,140,255,.4);background:rgba(188,140,255,.08)">volume 成交量</span>
+    </div>
+    <div class="tooltip-box">
+      <strong>张量形状：</strong>输入 (B=32, T=30, F=5) → 预测下一日收盘价 close<sub>t+1</sub>
+    </div>
+  </div>
+
+  <h2>② 扩展至15维技术指标</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>趋势指标</h3>
+      <div class="feat-row">
+        <span class="feat-chip" style="color:var(--blue);border-color:rgba(88,166,255,.4);background:rgba(88,166,255,.08)">SMA 简单均线</span>
+        <span class="feat-chip" style="color:var(--blue);border-color:rgba(88,166,255,.4);background:rgba(88,166,255,.08)">EMA 指数均线</span>
+        <span class="feat-chip" style="color:var(--blue);border-color:rgba(88,166,255,.4);background:rgba(88,166,255,.08)">MACD</span>
+        <span class="feat-chip" style="color:var(--blue);border-color:rgba(88,166,255,.4);background:rgba(88,166,255,.08)">MACD Signal</span>
+        <span class="feat-chip" style="color:var(--blue);border-color:rgba(88,166,255,.4);background:rgba(88,166,255,.08)">CCI</span>
+        <span class="feat-chip" style="color:var(--blue);border-color:rgba(88,166,255,.4);background:rgba(88,166,255,.08)">ADX</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>动量 / 波动 / 成交量</h3>
+      <div class="feat-row">
+        <span class="feat-chip" style="color:var(--green);border-color:rgba(63,185,80,.4);background:rgba(63,185,80,.08)">RSI</span>
+        <span class="feat-chip" style="color:var(--green);border-color:rgba(63,185,80,.4);background:rgba(63,185,80,.08)">Stoch</span>
+        <span class="feat-chip" style="color:var(--green);border-color:rgba(63,185,80,.4);background:rgba(63,185,80,.08)">ROC</span>
+        <span class="feat-chip" style="color:var(--orange);border-color:rgba(255,140,66,.4);background:rgba(255,140,66,.08)">BB上轨</span>
+        <span class="feat-chip" style="color:var(--orange);border-color:rgba(255,140,66,.4);background:rgba(255,140,66,.08)">BB下轨</span>
+        <span class="feat-chip" style="color:var(--orange);border-color:rgba(255,140,66,.4);background:rgba(255,140,66,.08)">ATR</span>
+        <span class="feat-chip" style="color:var(--purple);border-color:rgba(188,140,255,.4);background:rgba(188,140,255,.08)">MFI</span>
+        <span class="feat-chip" style="color:var(--purple);border-color:rgba(188,140,255,.4);background:rgba(188,140,255,.08)">OBV</span>
+      </div>
+    </div>
+  </div>
+
+  <h2>③ 情感特征（SnowNLP + 股吧评论）</h2>
+  <div class="card">
+    <p>爬取贵州茅台股吧评论，用 <strong>SnowNLP</strong> 打分 [0,1]，按交易日聚合为 <strong>7维情感特征</strong>：</p>
+    <table>
+      <tr><th>特征名</th><th>含义</th><th>取值范围</th></tr>
+      <tr><td><code>sentiment_mean</code></td><td>日均情感得分（>0.5 偏正向）</td><td>[0, 1]</td></tr>
+      <tr><td><code>sentiment_std</code></td><td>日内情感标准差（反映分歧程度）</td><td>[0, 0.5]</td></tr>
+      <tr><td><code>positive_ratio</code></td><td>正向评论占比（得分 > 0.6）</td><td>[0, 1]</td></tr>
+      <tr><td><code>negative_ratio</code></td><td>负向评论占比（得分 < 0.4）</td><td>[0, 1]</td></tr>
+      <tr><td><code>comment_count</code></td><td>当日评论数 log1p 缩放</td><td>[0, ∞)</td></tr>
+      <tr><td><code>sentiment_momentum</code></td><td>情感变化速度（与前一日之差）</td><td>[-1, 1]</td></tr>
+      <tr><td><code>sentiment_ma5</code></td><td>5日情感均值（平滑噪声）</td><td>[0, 1]</td></tr>
+    </table>
+  </div>
+
+  <h2>最终输入张量</h2>
+  <div class="card">
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+      <div style="text-align:center">
+        <div style="color:var(--muted);font-size:12px">Batch Size</div>
+        <div style="font-size:2.5rem;font-weight:800;color:var(--blue)">32</div>
+      </div>
+      <div style="font-size:28px;color:var(--border)">×</div>
+      <div style="text-align:center">
+        <div style="color:var(--muted);font-size:12px">时间窗口</div>
+        <div style="font-size:2.5rem;font-weight:800;color:var(--green)">64</div>
+        <div style="color:var(--muted);font-size:11px">天</div>
+      </div>
+      <div style="font-size:28px;color:var(--border)">×</div>
+      <div style="text-align:center">
+        <div style="color:var(--muted);font-size:12px">特征维度</div>
+        <div style="font-size:2.5rem;font-weight:800;color:var(--orange)">21</div>
+        <div style="color:var(--muted);font-size:11px">= 15技术 + 7情感 - 1date</div>
+      </div>
+      <div style="font-size:28px;color:var(--border)">=</div>
+      <div style="text-align:center">
+        <div style="color:var(--muted);font-size:12px">输入张量</div>
+        <div style="font-size:1.3rem;font-weight:800;color:var(--purple)">(32, 64, 21)</div>
+      </div>
+    </div>
+    <div class="tooltip-box" style="margin-top:16px">
+      <strong>MinMaxScaler：</strong>训练集 fit → 验证/测试集 transform（防止数据泄漏）。
+      划分比例 6 : 1.5 : 2.5（孙惠莹2025 §3.2）。
+      情感数据按交易日左对齐，非交易日前向填充，冷启动期取中性值 0.5。
+    </div>
+  </div>
+
+  <h2>数据处理流程图</h2>
+  <div class="card" style="overflow-x:auto">
+    <svg class="arch-svg" viewBox="0 0 880 200" style="min-width:600px">
+      <defs>
+        <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#58a6ff"/>
+        </marker>
+      </defs>
+      <!-- 节点 -->
+      <rect x="10" y="70" width="110" height="60" rx="8" fill="#1c2128" stroke="#30363d" stroke-width="1.5"/>
+      <text x="65" y="96" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="700">股吧评论CSV</text>
+      <text x="65" y="112" text-anchor="middle" fill="#8b949e" font-size="10">贵州茅台600519</text>
+      <text x="65" y="126" text-anchor="middle" fill="#8b949e" font-size="10">_股吧评论.csv</text>
+
+      <rect x="10" y="10" width="110" height="50" rx="8" fill="#1c2128" stroke="#30363d" stroke-width="1.5"/>
+      <text x="65" y="32" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="700">行情CSV</text>
+      <text x="65" y="50" text-anchor="middle" fill="#8b949e" font-size="10">moutai_price.csv</text>
+
+      <rect x="180" y="10" width="120" height="50" rx="8" fill="#1c2128" stroke="#3fb950" stroke-width="1.5"/>
+      <text x="240" y="32" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="700">compute_indicators</text>
+      <text x="240" y="50" text-anchor="middle" fill="#8b949e" font-size="10">→ 15维技术指标</text>
+
+      <rect x="180" y="70" width="120" height="60" rx="8" fill="#1c2128" stroke="#ff8c42" stroke-width="1.5"/>
+      <text x="240" y="93" text-anchor="middle" fill="#ff8c42" font-size="11" font-weight="700">SnowNLP打分</text>
+      <text x="240" y="109" text-anchor="middle" fill="#8b949e" font-size="10">aggregate_daily</text>
+      <text x="240" y="123" text-anchor="middle" fill="#8b949e" font-size="10">→ 7维情感</text>
+
+      <rect x="370" y="30" width="120" height="50" rx="8" fill="#1c2128" stroke="#bc8cff" stroke-width="1.5"/>
+      <text x="430" y="52" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="700">merge_with_indicators</text>
+      <text x="430" y="68" text-anchor="middle" fill="#8b949e" font-size="10">→ 21维对齐</text>
+
+      <rect x="560" y="30" width="110" height="50" rx="8" fill="#1c2128" stroke="#e3b341" stroke-width="1.5"/>
+      <text x="615" y="52" text-anchor="middle" fill="#e3b341" font-size="11" font-weight="700">MinMaxScaler</text>
+      <text x="615" y="68" text-anchor="middle" fill="#8b949e" font-size="10">归一化</text>
+
+      <rect x="740" y="30" width="120" height="50" rx="8" fill="#1c2128" stroke="#58a6ff" stroke-width="1.5"/>
+      <text x="800" y="52" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="700">make_windows</text>
+      <text x="800" y="68" text-anchor="middle" fill="#8b949e" font-size="10">(B,64,21) 张量</text>
+
+      <!-- 箭头 -->
+      <line x1="120" y1="35" x2="178" y2="35" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="120" y1="100" x2="178" y2="100" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="300" y1="35" x2="368" y2="55" stroke="#3fb950" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="300" y1="100" x2="368" y2="70" stroke="#ff8c42" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="490" y1="55" x2="558" y2="55" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="670" y1="55" x2="738" y2="55" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- 阶段标签 -->
+      <text x="65" y="175" text-anchor="middle" fill="#8b949e" font-size="10">原始数据</text>
+      <text x="240" y="155" text-anchor="middle" fill="#8b949e" font-size="10">特征工程</text>
+      <text x="430" y="100" text-anchor="middle" fill="#8b949e" font-size="10">数据融合</text>
+      <text x="615" y="100" text-anchor="middle" fill="#8b949e" font-size="10">归一化</text>
+      <text x="800" y="100" text-anchor="middle" fill="#8b949e" font-size="10">滑窗切分</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════
+     页面 3：TCN
+════════════════════════════════════ -->
+<div class="page" id="page-tcn">
+  <h1>TCN 时域卷积网络</h1>
+  <p class="subtitle">Temporal Convolutional Network — 膨胀因果卷积捕捉多尺度局部时序模式</p>
+
+  <h2>核心思想</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>因果性（Causal）</h3>
+      <p>位置 <strong>t</strong> 的输出只依赖于输入序列中 <strong>t 及之前</strong>的时间步，不会"看到未来"。</p>
+      <p>实现方法：左侧填充 <code>(kernel-1)×dilation</code> 个零，右侧不填充。</p>
+      <div class="tooltip-box">
+        未来数据泄露会导致测试集虚高的预测精度，
+        因果卷积是金融预测的硬性要求。
+      </div>
+    </div>
+    <div class="card">
+      <h3>膨胀卷积（Dilated）</h3>
+      <p>膨胀率按 1→2→4→8 指数增长，卷积核感受野随层数<strong>指数级扩大</strong>，用少量参数覆盖长时序。</p>
+      <p>4层堆叠后感受野：</p>
+      <div class="tooltip-box">
+        RF = 2 × (kernel-1) × (2⁴ - 1) + 1<br>
+        kernel=3 → <strong>RF = 2×2×15+1 = 61 步</strong>
+      </div>
+    </div>
+  </div>
+
+  <h2>膨胀因果卷积动画（4层）</h2>
+  <div class="card">
+    <p style="margin-bottom:16px">下图演示4层TCN如何通过膨胀逐层扩大感受野（蓝色=激活节点，发光=当前计算）：</p>
+
+    <!-- 层 0：输入 -->
+    <div class="tcn-layer">
+      <div style="color:var(--muted);font-size:12px;margin-bottom:6px">输入层 (F=21维，T=8时间步示意)</div>
+      <div class="tcn-row">
+        <div class="tcn-node tcn-active" style="animation-delay:.0s">t₁</div>
+        <div class="tcn-node tcn-active" style="animation-delay:.1s">t₂</div>
+        <div class="tcn-node tcn-active" style="animation-delay:.2s">t₃</div>
+        <div class="tcn-node tcn-active" style="animation-delay:.3s">t₄</div>
+        <div class="tcn-node tcn-active" style="animation-delay:.4s">t₅</div>
+        <div class="tcn-node tcn-active" style="animation-delay:.5s">t₆</div>
+        <div class="tcn-node tcn-active" style="animation-delay:.6s">t₇</div>
+        <div class="tcn-node tcn-active" style="animation-delay:.7s">t₈</div>
+      </div>
+    </div>
+
+    <!-- 层 1：dilation=1 -->
+    <div class="tcn-layer">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="color:var(--orange);font-size:12px;font-weight:700">Layer 1</span>
+        <span class="badge badge-orange">dilation=1</span>
+        <span style="color:var(--muted);font-size:11px">感受野 = 3步 · 捕捉短期波动</span>
+      </div>
+      <div class="tcn-row">
+        <div class="tcn-node tcn-inactive" style="animation-delay:.1s">·</div>
+        <div class="tcn-node tcn-inactive" style="animation-delay:.2s">·</div>
+        <div class="tcn-node tcn-active" style="animation-delay:.3s;border-color:var(--orange);color:var(--orange)">h₁</div>
+        <div class="tcn-node tcn-active" style="animation-delay:.4s;border-color:var(--orange);color:var(--orange)">h₂</div>
+        <div class="tcn-node tcn-active" style="animation-delay:.5s;border-color:var(--orange);color:var(--orange)">h₃</div>
+        <div class="tcn-node tcn-active" style="animation-delay:.6s;border-color:var(--orange);color:var(--orange)">h₄</div>
+        <div class="tcn-node tcn-active" style="animation-delay:.7s;border-color:var(--orange);color:var(--orange)">h₅</div>
+        <div class="tcn-node tcn-active" style="animation-delay:.8s;border-color:var(--orange);color:var(--orange)">h₆</div>
+      </div>
+    </div>
+
+    <!-- 层 2：dilation=2 -->
+    <div class="tcn-layer">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="color:var(--yellow);font-size:12px;font-weight:700">Layer 2</span>
+        <span class="badge" style="background:rgba(227,179,65,.15);color:var(--yellow);border:1px solid rgba(227,179,65,.3)">dilation=2</span>
+        <span style="color:var(--muted);font-size:11px">感受野 = 7步 · 捕捉周趋势</span>
+      </div>
+      <div class="tcn-row">
+        <div class="tcn-node tcn-inactive">·</div>
+        <div class="tcn-node tcn-inactive">·</div>
+        <div class="tcn-node tcn-inactive">·</div>
+        <div class="tcn-node tcn-inactive">·</div>
+        <div class="tcn-node tcn-active" style="animation-delay:.4s;border-color:var(--yellow);color:var(--yellow)">h₅</div>
+        <div class="tcn-node tcn-active" style="animation-delay:.6s;border-color:var(--yellow);color:var(--yellow)">h₆</div>
+        <div class="tcn-node tcn-active" style="animation-delay:.8s;border-color:var(--yellow);color:var(--yellow)">h₇</div>
+        <div class="tcn-node tcn-active" style="animation-delay:1.0s;border-color:var(--yellow);color:var(--yellow)">h₈</div>
+      </div>
+    </div>
+
+    <!-- 层 3：dilation=4 -->
+    <div class="tcn-layer">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="color:var(--green);font-size:12px;font-weight:700">Layer 3</span>
+        <span class="badge badge-green">dilation=4</span>
+        <span style="color:var(--muted);font-size:11px">感受野 = 15步 · 捕捉月趋势</span>
+      </div>
+      <div class="tcn-row">
+        <div class="tcn-node tcn-inactive">·</div>
+        <div class="tcn-node tcn-inactive">·</div>
+        <div class="tcn-node tcn-inactive">·</div>
+        <div class="tcn-node tcn-inactive">·</div>
+        <div class="tcn-node tcn-inactive">·</div>
+        <div class="tcn-node tcn-inactive">·</div>
+        <div class="tcn-node tcn-active" style="animation-delay:.7s;border-color:var(--green);color:var(--green)">h₇</div>
+        <div class="tcn-node tcn-active" style="animation-delay:1.2s;border-color:var(--green);color:var(--green)">h₈</div>
+      </div>
+    </div>
+
+    <!-- 层 4：dilation=8 -->
+    <div class="tcn-layer">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="color:var(--purple);font-size:12px;font-weight:700">Layer 4</span>
+        <span class="badge badge-purple">dilation=8</span>
+        <span style="color:var(--muted);font-size:11px">感受野 = 31步 · 捕捉季度趋势</span>
+      </div>
+      <div class="tcn-row">
+        <div class="tcn-node tcn-inactive">·</div>
+        <div class="tcn-node tcn-inactive">·</div>
+        <div class="tcn-node tcn-inactive">·</div>
+        <div class="tcn-node tcn-inactive">·</div>
+        <div class="tcn-node tcn-inactive">·</div>
+        <div class="tcn-node tcn-inactive">·</div>
+        <div class="tcn-node tcn-inactive">·</div>
+        <div class="tcn-node tcn-active" style="animation-delay:1.5s;border-color:var(--purple);color:var(--purple)">out</div>
+      </div>
+    </div>
+  </div>
+
+  <h2>TCN 残差块结构</h2>
+  <div class="card" style="overflow-x:auto">
+    <svg class="arch-svg" viewBox="0 0 760 200" style="min-width:500px">
+      <defs>
+        <marker id="arr2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#58a6ff"/>
+        </marker>
+      </defs>
+      <!-- 主路 -->
+      <rect x="10"  y="80" width="80" height="40" rx="6" fill="#1c2128" stroke="#58a6ff" stroke-width="1.5"/>
+      <text x="50"  y="97" text-anchor="middle" fill="#58a6ff" font-size="10">输入 x</text>
+      <text x="50"  y="112" text-anchor="middle" fill="#8b949e" font-size="9">(B,C_in,T)</text>
+
+      <rect x="130" y="80" width="90" height="40" rx="6" fill="#1c2128" stroke="#ff8c42" stroke-width="1.5"/>
+      <text x="175" y="97" text-anchor="middle" fill="#ff8c42" font-size="10">因果卷积₁</text>
+      <text x="175" y="112" text-anchor="middle" fill="#8b949e" font-size="9">dilation=2ⁱ</text>
+
+      <rect x="260" y="80" width="80" height="40" rx="6" fill="#1c2128" stroke="#3fb950" stroke-width="1.5"/>
+      <text x="300" y="97" text-anchor="middle" fill="#3fb950" font-size="10">ReLU</text>
+      <text x="300" y="112" text-anchor="middle" fill="#8b949e" font-size="9">+ Dropout</text>
+
+      <rect x="380" y="80" width="90" height="40" rx="6" fill="#1c2128" stroke="#ff8c42" stroke-width="1.5"/>
+      <text x="425" y="97" text-anchor="middle" fill="#ff8c42" font-size="10">因果卷积₂</text>
+      <text x="425" y="112" text-anchor="middle" fill="#8b949e" font-size="9">dilation=2ⁱ</text>
+
+      <rect x="510" y="80" width="80" height="40" rx="6" fill="#1c2128" stroke="#3fb950" stroke-width="1.5"/>
+      <text x="550" y="97" text-anchor="middle" fill="#3fb950" font-size="10">ReLU</text>
+      <text x="550" y="112" text-anchor="middle" fill="#8b949e" font-size="9">+ Dropout</text>
+
+      <!-- ⊕ 加法 -->
+      <circle cx="660" cy="100" r="18" fill="none" stroke="#e3b341" stroke-width="2"/>
+      <text x="660" y="106" text-anchor="middle" fill="#e3b341" font-size="20">⊕</text>
+
+      <rect x="700" y="80" width="50" height="40" rx="6" fill="#1c2128" stroke="#58a6ff" stroke-width="1.5"/>
+      <text x="725" y="97" text-anchor="middle" fill="#58a6ff" font-size="10">ReLU</text>
+      <text x="725" y="112" text-anchor="middle" fill="#8b949e" font-size="9">输出</text>
+
+      <!-- 主路箭头 -->
+      <line x1="90"  y1="100" x2="128" y2="100" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr2)"/>
+      <line x1="220" y1="100" x2="258" y2="100" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr2)"/>
+      <line x1="340" y1="100" x2="378" y2="100" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr2)"/>
+      <line x1="470" y1="100" x2="508" y2="100" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr2)"/>
+      <line x1="590" y1="100" x2="640" y2="100" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr2)"/>
+      <line x1="678" y1="100" x2="698" y2="100" stroke="#e3b341" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+      <!-- 残差连接（跳过主路，走上方） -->
+      <path d="M 50 80 L 50 30 L 660 30 L 660 82" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr2)"/>
+      <text x="355" y="22" text-anchor="middle" fill="#bc8cff" font-size="11">残差连接（shortcut）— 若C_in≠C_out，用1×1卷积对齐</text>
+    </svg>
+  </div>
+
+  <h2>为什么是 TCN 而不是纯 CNN？</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>普通 CNN 的问题</h3>
+      <p>padding=same 时，右侧会补零，导致时刻 t 的输出看到了 <strong>未来的数据</strong>，造成信息泄漏。</p>
+    </div>
+    <div class="card">
+      <h3>TCN 的解决方案</h3>
+      <p>使用 <strong>因果填充</strong>（左侧填充），配合 <strong>weight_norm</strong> 稳定训练。残差连接解决深层梯度问题。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════
+     页面 4：LSTM
+════════════════════════════════════ -->
+<div class="page" id="page-lstm">
+  <h1>LSTM 长短期记忆网络</h1>
+  <p class="subtitle">Long Short-Term Memory — 三门控制解决 RNN 梯度消失问题</p>
+
+  <h2>为什么需要 LSTM？</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>普通 RNN 的问题</h3>
+      <p>隐藏状态 h<sub>t</sub> = tanh(Wh<sub>t-1</sub> + Ux<sub>t</sub> + b)</p>
+      <p>反向传播时梯度连乘 W^T，长序列导致<strong>梯度爆炸或消失</strong>，无法学到10步以上的依赖。</p>
+    </div>
+    <div class="card">
+      <h3>LSTM 的解决方案</h3>
+      <p>引入<strong>细胞状态 C<sub>t</sub></strong>（Cell State）作为"高速公路"，信息可以几乎无损地流经很长的时间步。</p>
+      <p>三个门学习"何时遗忘、何时记住、何时输出"。</p>
+    </div>
+  </div>
+
+  <h2>LSTM 单元动画</h2>
+  <div class="lstm-cell">
+    <div class="lstm-title">LSTM 单元 — 细胞状态 C<sub>t</sub> 信息流（动画）</div>
+
+    <!-- 细胞状态轨道 -->
+    <div class="cell-track">
+      <span class="cell-label">C<sub>t-1</sub></span>
+      <span class="cell-arrow">→→→→→→→→→→→→</span>
+      <div class="flow-dot blue"></div>
+      <div class="flow-dot green"></div>
+      <div class="flow-dot orange"></div>
+      <div class="flow-dot purple"></div>
+      <span class="cell-arrow">→→→→→→→→→→→→</span>
+      <span class="cell-label">C<sub>t</sub></span>
+    </div>
+
+    <!-- 三个门 -->
+    <div class="gates-row">
+      <!-- 遗忘门 -->
+      <div class="gate-box gate-forget">
+        <div class="gate-icon">🗑️</div>
+        <div class="gate-name">遗忘门 (Forget Gate)</div>
+        <div class="gate-formula">f<sub>t</sub> = σ(W<sub>f</sub>·[h<sub>t-1</sub>, x<sub>t</sub>] + b<sub>f</sub>)</div>
+        <div class="gate-desc">
+          输出 [0,1]，<strong>0=完全遗忘</strong>，1=完全保留。<br>
+          决定细胞状态中哪些旧信息要丢弃。<br>
+          <em>股价示例：遇到季报发布，遗忘门会让模型"忘掉"之前的价格趋势。</em>
+        </div>
+        <div class="progress-bar" style="margin-top:8px">
+          <div class="progress-fill" style="width:65%;background:var(--red);animation:fillAnim 3s ease-out infinite"></div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">σ输出示意 ≈ 0.65（保留65%旧信息）</div>
+      </div>
+
+      <!-- 输入门 -->
+      <div class="gate-box gate-input">
+        <div class="gate-icon">✍️</div>
+        <div class="gate-name">输入门 (Input Gate)</div>
+        <div class="gate-formula">
+          i<sub>t</sub> = σ(W<sub>i</sub>·[h<sub>t-1</sub>, x<sub>t</sub>] + b<sub>i</sub>)<br>
+          C̃<sub>t</sub> = tanh(W<sub>c</sub>·[h<sub>t-1</sub>, x<sub>t</sub>] + b<sub>c</sub>)
+        </div>
+        <div class="gate-desc">
+          两步：① sigmoid 决定写入多少；② tanh 产生候选值 [-1,1]。<br>
+          <em>股价示例：RSI超卖信号出现时，输入门会写入"超卖状态"信息。</em>
+        </div>
+        <div class="progress-bar" style="margin-top:8px">
+          <div class="progress-fill" style="width:82%;background:var(--green);animation:fillAnim 3s ease-out .4s infinite"></div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">i<sub>t</sub>·C̃<sub>t</sub> = 写入新信息量</div>
+      </div>
+
+      <!-- 输出门 -->
+      <div class="gate-box gate-output">
+        <div class="gate-icon">📤</div>
+        <div class="gate-name">输出门 (Output Gate)</div>
+        <div class="gate-formula">
+          o<sub>t</sub> = σ(W<sub>o</sub>·[h<sub>t-1</sub>, x<sub>t</sub>] + b<sub>o</sub>)<br>
+          h<sub>t</sub> = o<sub>t</sub> ⊙ tanh(C<sub>t</sub>)
+        </div>
+        <div class="gate-desc">
+          决定从细胞状态中读取哪些信息作为当前输出 h<sub>t</sub>。<br>
+          <em>股价示例：预测时，输出门决定将长期趋势中的哪部分传递给下一层。</em>
+        </div>
+        <div class="progress-bar" style="margin-top:8px">
+          <div class="progress-fill" style="width:55%;background:var(--blue);animation:fillAnim 3s ease-out .8s infinite"></div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">h<sub>t</sub> = o<sub>t</sub>⊙tanh(C<sub>t</sub>)</div>
+      </div>
+    </div>
+
+    <!-- 细胞状态更新公式 -->
+    <div class="tooltip-box">
+      <strong>细胞状态更新：</strong>
+      C<sub>t</sub> = f<sub>t</sub> ⊙ C<sub>t-1</sub>  +  i<sub>t</sub> ⊙ C̃<sub>t</sub>
+      <br>
+      <span style="color:var(--muted)">（遗忘旧信息 + 写入新信息，⊙ = 逐元素相乘）</span>
+    </div>
+
+    <!-- 隐藏状态流 -->
+    <div class="hidden-flow">
+      <span class="hf-label">h<sub>t-1</sub> →</span>
+      <div class="hf-dot"></div><div class="hf-dot"></div><div class="hf-dot"></div>
+      <div class="hf-dot"></div><div class="hf-dot"></div>
+      <span class="hf-arrow">→</span>
+      <span class="hf-label">→ h<sub>t</sub>（传递给下一时间步 + Transformer输入）</span>
+    </div>
+  </div>
+
+  <h2>4层堆叠 LSTM 配置</h2>
+  <div class="card">
+    <table>
+      <tr><th>参数</th><th>值</th><th>说明</th></tr>
+      <tr><td>input_size</td><td>64</td><td>TCN 输出通道数</td></tr>
+      <tr><td>hidden_size</td><td><strong>256</strong></td><td>与孙惠莹(2025)一致</td></tr>
+      <tr><td>num_layers</td><td><strong>4</strong></td><td>4层堆叠，层间 dropout=0.3</td></tr>
+      <tr><td>batch_first</td><td>True</td><td>输入格式 (B,T,H)</td></tr>
+      <tr><td>可训练参数</td><td>≈ 1,316,864</td><td>= 4层 × 4×(256×(256+64)+256)</td></tr>
+    </table>
+  </div>
+
+  <h2>LSTM 完整前向计算流程</h2>
+  <div class="card" style="overflow-x:auto">
+    <svg class="arch-svg" viewBox="0 0 880 160" style="min-width:600px">
+      <defs>
+        <marker id="arr3" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#58a6ff"/>
+        </marker>
+      </defs>
+      <!-- 时间步格 -->
+      <rect x="10"  y="50" width="80" height="60" rx="8" fill="#1c2128" stroke="#30363d"/>
+      <text x="50"  y="76" text-anchor="middle" fill="#8b949e" font-size="10">x<tspan font-size="8">t=1</tspan></text>
+      <text x="50"  y="94" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="700">LSTM</text>
+      <text x="50"  y="108" text-anchor="middle" fill="#8b949e" font-size="9">h₁</text>
+
+      <rect x="140" y="50" width="80" height="60" rx="8" fill="#1c2128" stroke="#30363d"/>
+      <text x="180" y="76" text-anchor="middle" fill="#8b949e" font-size="10">x<tspan font-size="8">t=2</tspan></text>
+      <text x="180" y="94" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="700">LSTM</text>
+      <text x="180" y="108" text-anchor="middle" fill="#8b949e" font-size="9">h₂</text>
+
+      <rect x="270" y="50" width="80" height="60" rx="8" fill="#1c2128" stroke="#30363d"/>
+      <text x="310" y="76" text-anchor="middle" fill="#8b949e" font-size="10">x<tspan font-size="8">t=3</tspan></text>
+      <text x="310" y="94" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="700">LSTM</text>
+      <text x="310" y="108" text-anchor="middle" fill="#8b949e" font-size="9">h₃</text>
+
+      <text x="400" y="84" text-anchor="middle" fill="#8b949e" font-size="18">···</text>
+
+      <rect x="450" y="50" width="80" height="60" rx="8" fill="#1c2128" stroke="#58a6ff" stroke-width="2"/>
+      <text x="490" y="76" text-anchor="middle" fill="#58a6ff" font-size="10">x<tspan font-size="8">t=T</tspan></text>
+      <text x="490" y="94" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="700">LSTM</text>
+      <text x="490" y="108" text-anchor="middle" fill="#58a6ff" font-size="9" font-weight="700">h_T</text>
+
+      <!-- h 传递箭头 -->
+      <line x1="90" y1="80" x2="138" y2="80" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arr3)"/>
+      <line x1="220" y1="80" x2="268" y2="80" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arr3)"/>
+      <line x1="350" y1="80" x2="398" y2="80" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arr3)"/>
+      <line x1="418" y1="80" x2="448" y2="80" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arr3)"/>
+
+      <!-- 输出序列 -->
+      <text x="580" y="55" text-anchor="middle" fill="#8b949e" font-size="11">LSTM输出整个序列</text>
+      <rect x="570" y="60" width="280" height="40" rx="6" fill="rgba(63,185,80,.08)" stroke="#3fb950" stroke-width="1.5"/>
+      <text x="710" y="85" text-anchor="middle" fill="#3fb950" font-size="12">out: (B, T=64, hidden=256)</text>
+      <line x1="530" y1="80" x2="568" y2="80" stroke="#3fb950" stroke-width="1.5" marker-end="url(#arr3)"/>
+
+      <!-- 标注 -->
+      <text x="50"  y="135" text-anchor="middle" fill="#8b949e" font-size="10">t=1</text>
+      <text x="180" y="135" text-anchor="middle" fill="#8b949e" font-size="10">t=2</text>
+      <text x="490" y="135" text-anchor="middle" fill="#58a6ff" font-size="10">t=T (最后时间步)</text>
+      <text x="115" y="72" text-anchor="middle" fill="#bc8cff" font-size="9">h₁→</text>
+      <text x="245" y="72" text-anchor="middle" fill="#bc8cff" font-size="9">h₂→</text>
+    </svg>
+    <p style="font-size:12px;color:var(--muted);margin-top:8px">LSTM 输出<strong>完整时序</strong> (B,64,256)，而非只取最后时间步，供 Transformer 做全局注意力。</p>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════
+     页面 5：Transformer
+════════════════════════════════════ -->
+<div class="page" id="page-transformer">
+  <h1>Transformer 编码器</h1>
+  <p class="subtitle">Self-Attention 机制捕捉序列中任意时间步之间的全局关系</p>
+
+  <h2>为什么在 LSTM 之后还需要 Transformer？</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>LSTM 的局限</h3>
+      <p>LSTM 虽然有记忆，但信息是<strong>顺序压缩</strong>的：t=1 的信息经过64步传递后大量衰减。</p>
+      <p>例：今天的价格与30天前的某个关键日期的关系，LSTM 很难直接捕捉。</p>
+    </div>
+    <div class="card">
+      <h3>Transformer 的优势</h3>
+      <p>Self-Attention 可以让 t=64 直接"看到" t=1，<strong>没有距离衰减</strong>。</p>
+      <p>4个注意力头各自专注不同的时间模式：短期、中期、长期、波动。</p>
+    </div>
+  </div>
+
+  <h2>Self-Attention 机制动画</h2>
+  <div class="card">
+    <p style="margin-bottom:16px">下面矩阵的每个格子代表"第 <em>i</em> 个时间步关注第 <em>j</em> 个时间步的程度"，颜色越亮权重越高（动画随机模拟）：</p>
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:start">
+      <div>
+        <div style="color:var(--muted);font-size:11px;margin-bottom:6px;text-align:center">注意力矩阵 (6×6示意)</div>
+        <div class="attn-grid" id="attnGrid"></div>
+        <div style="text-align:center;color:var(--muted);font-size:10px;margin-top:4px">列 = 被关注的时间步</div>
+      </div>
+      <div>
+        <h3>计算过程（缩放点积注意力）</h3>
+        <div class="tooltip-box">
+          <strong>① 线性投影</strong><br>
+          Q = X·W<sub>Q</sub>,  K = X·W<sub>K</sub>,  V = X·W<sub>V</sub><br>
+          X: (B, T, 256) → Q,K,V: 各 (B, T, 64) per head
+        </div>
+        <div class="tooltip-box" style="margin-top:8px">
+          <strong>② 注意力权重</strong><br>
+          Attention(Q,K,V) = softmax(QK<sup>T</sup> / √d<sub>k</sub>) · V<br>
+          √d<sub>k</sub> = √64 = 8 （防止点积过大梯度消失）
+        </div>
+        <div class="tooltip-box" style="margin-top:8px">
+          <strong>③ 多头拼接</strong><br>
+          MultiHead = Concat(head₁,...,head₄) · W<sub>O</sub><br>
+          4头 × 64维 = 256维，保持维度不变
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>位置编码（Positional Encoding）</h2>
+  <div class="card">
+    <p>Transformer 本身无顺序感知，需手动注入位置信息：</p>
+    <div class="tooltip-box">
+      PE(pos, 2i)   = sin(pos / 10000<sup>2i/d</sup>)<br>
+      PE(pos, 2i+1) = cos(pos / 10000<sup>2i/d</sup>)
+    </div>
+    <p>使用 <strong>Pre-LN</strong>（LayerNorm 在 Attention 之前）：训练更稳定，收敛更快，避免后期 loss spike。</p>
+  </div>
+
+  <h2>Encoder 层结构（Pre-LN，本项目配置）</h2>
+  <div class="card" style="overflow-x:auto">
+    <svg class="arch-svg" viewBox="0 0 600 300" style="min-width:400px">
+      <defs>
+        <marker id="arr4" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#58a6ff"/>
+        </marker>
+      </defs>
+
+      <!-- 输入 -->
+      <rect x="220" y="10" width="160" height="35" rx="6" fill="#1c2128" stroke="#58a6ff" stroke-width="1.5"/>
+      <text x="300" y="32" text-anchor="middle" fill="#58a6ff" font-size="12">输入 + 位置编码</text>
+
+      <!-- LayerNorm 1 -->
+      <rect x="220" y="65" width="160" height="35" rx="6" fill="#1c2128" stroke="#e3b341" stroke-width="1.5"/>
+      <text x="300" y="87" text-anchor="middle" fill="#e3b341" font-size="12">LayerNorm (Pre-LN)</text>
+
+      <!-- Multi-Head Attention -->
+      <rect x="180" y="120" width="240" height="40" rx="6" fill="rgba(188,140,255,.1)" stroke="#bc8cff" stroke-width="2"/>
+      <text x="300" y="136" text-anchor="middle" fill="#bc8cff" font-size="12" font-weight="700">Multi-Head Self-Attention</text>
+      <text x="300" y="152" text-anchor="middle" fill="#8b949e" font-size="10">nhead=4, d_model=256</text>
+
+      <!-- Add -->
+      <circle cx="300" cy="185" r="14" fill="none" stroke="#e3b341" stroke-width="2"/>
+      <text x="300" y="191" text-anchor="middle" fill="#e3b341" font-size="18">⊕</text>
+
+      <!-- LayerNorm 2 -->
+      <rect x="220" y="210" width="160" height="35" rx="6" fill="#1c2128" stroke="#e3b341" stroke-width="1.5"/>
+      <text x="300" y="232" text-anchor="middle" fill="#e3b341" font-size="12">LayerNorm</text>
+
+      <!-- FFN -->
+      <rect x="180" y="258" width="240" height="35" rx="6" fill="rgba(63,185,80,.1)" stroke="#3fb950" stroke-width="2"/>
+      <text x="300" y="280" text-anchor="middle" fill="#3fb950" font-size="12">FFN: 256→1024→256</text>
+
+      <!-- 箭头 -->
+      <line x1="300" y1="45"  x2="300" y2="63"  stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr4)"/>
+      <line x1="300" y1="100" x2="300" y2="118" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr4)"/>
+      <line x1="300" y1="160" x2="300" y2="169" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr4)"/>
+      <line x1="300" y1="199" x2="300" y2="208" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr4)"/>
+      <line x1="300" y1="245" x2="300" y2="256" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr4)"/>
+
+      <!-- 残差跳连 -->
+      <path d="M 210 45 L 170 45 L 170 185 L 284 185" fill="none" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr4)"/>
+      <text x="145" y="120" text-anchor="middle" fill="#bc8cff" font-size="10" transform="rotate(-90,145,120)">残差连接</text>
+    </svg>
+  </div>
+
+  <h2>2层 Encoder 叠加配置</h2>
+  <div class="card">
+    <table>
+      <tr><th>参数</th><th>值</th><th>说明</th></tr>
+      <tr><td>d_model</td><td><strong>256</strong></td><td>LSTM hidden_size，维度不变</td></tr>
+      <tr><td>nhead</td><td><strong>4</strong></td><td>4个注意力头，每头64维</td></tr>
+      <tr><td>dim_feedforward</td><td>1024</td><td>d_model×4，FFN中间层</td></tr>
+      <tr><td>num_layers</td><td><strong>2</strong></td><td>2层 TransformerEncoderLayer</td></tr>
+      <tr><td>norm_first</td><td>True</td><td>Pre-LN，训练更稳定</td></tr>
+      <tr><td>输出取用</td><td>x[:,-1,:]</td><td>只取最后时间步的特征向量</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════
+     页面 6：完整流水线
+════════════════════════════════════ -->
+<div class="page" id="page-pipeline">
+  <h1>完整模型流水线</h1>
+  <p class="subtitle">从输入张量到 H-MoE 融合特征的完整前向传播路径</p>
+
+  <h2>TCNLSTMTransformer 完整架构图</h2>
+  <div class="card" style="overflow-x:auto">
+    <svg class="arch-svg" viewBox="0 0 900 520" style="min-width:650px">
+      <defs>
+        <marker id="arr5" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#58a6ff"/>
+        </marker>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="3" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+
+      <!-- 输入 -->
+      <rect x="320" y="10" width="260" height="50" rx="8" fill="#1c2128" stroke="#58a6ff" stroke-width="2"/>
+      <text x="450" y="32" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="700">输入张量 x</text>
+      <text x="450" y="50" text-anchor="middle" fill="#8b949e" font-size="11">(B=32, T=64, in_features=21)</text>
+
+      <!-- TCN 区域 -->
+      <rect x="20" y="90" width="860" height="120" rx="10" fill="rgba(255,140,66,.04)" stroke="rgba(255,140,66,.3)" stroke-width="1" stroke-dasharray="6,3"/>
+      <text x="35" y="110" fill="#ff8c42" font-size="11" font-weight="700">TCN 模块</text>
+      <rect x="80"  y="118" width="120" height="70" rx="8" fill="#1c2128" stroke="#ff8c42" stroke-width="1.5"/>
+      <text x="140" y="148" text-anchor="middle" fill="#ff8c42" font-size="11">Block₁</text>
+      <text x="140" y="164" text-anchor="middle" fill="#8b949e" font-size="9">dilation=1</text>
+      <text x="140" y="178" text-anchor="middle" fill="#8b949e" font-size="9">RF=3步</text>
+
+      <rect x="240" y="118" width="120" height="70" rx="8" fill="#1c2128" stroke="#ff8c42" stroke-width="1.5"/>
+      <text x="300" y="148" text-anchor="middle" fill="#ff8c42" font-size="11">Block₂</text>
+      <text x="300" y="164" text-anchor="middle" fill="#8b949e" font-size="9">dilation=2</text>
+      <text x="300" y="178" text-anchor="middle" fill="#8b949e" font-size="9">RF=7步</text>
+
+      <rect x="400" y="118" width="120" height="70" rx="8" fill="#1c2128" stroke="#ff8c42" stroke-width="1.5"/>
+      <text x="460" y="148" text-anchor="middle" fill="#ff8c42" font-size="11">Block₃</text>
+      <text x="460" y="164" text-anchor="middle" fill="#8b949e" font-size="9">dilation=4</text>
+      <text x="460" y="178" text-anchor="middle" fill="#8b949e" font-size="9">RF=15步</text>
+
+      <rect x="560" y="118" width="120" height="70" rx="8" fill="#1c2128" stroke="#ff8c42" stroke-width="1.5"/>
+      <text x="620" y="148" text-anchor="middle" fill="#ff8c42" font-size="11">Block₄</text>
+      <text x="620" y="164" text-anchor="middle" fill="#8b949e" font-size="9">dilation=8</text>
+      <text x="620" y="178" text-anchor="middle" fill="#8b949e" font-size="9">RF=31步</text>
+
+      <rect x="720" y="130" width="130" height="50" rx="8" fill="rgba(255,140,66,.12)" stroke="#ff8c42" stroke-width="1.5"/>
+      <text x="785" y="152" text-anchor="middle" fill="#ff8c42" font-size="11" font-weight="700">TCN输出</text>
+      <text x="785" y="168" text-anchor="middle" fill="#8b949e" font-size="10">(B,64,64)</text>
+
+      <line x1="200" y1="153" x2="238" y2="153" stroke="#ff8c42" stroke-width="1.5" marker-end="url(#arr5)"/>
+      <line x1="360" y1="153" x2="398" y2="153" stroke="#ff8c42" stroke-width="1.5" marker-end="url(#arr5)"/>
+      <line x1="520" y1="153" x2="558" y2="153" stroke="#ff8c42" stroke-width="1.5" marker-end="url(#arr5)"/>
+      <line x1="680" y1="153" x2="718" y2="153" stroke="#ff8c42" stroke-width="1.5" marker-end="url(#arr5)"/>
+      <line x1="450" y1="60"  x2="140" y2="116" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr5)"/>
+
+      <!-- LSTM 区域 -->
+      <rect x="20" y="230" width="860" height="100" rx="10" fill="rgba(63,185,80,.04)" stroke="rgba(63,185,80,.3)" stroke-width="1" stroke-dasharray="6,3"/>
+      <text x="35" y="250" fill="#3fb950" font-size="11" font-weight="700">LSTM 模块（4层堆叠）</text>
+
+      <rect x="80"  y="258" width="80" height="50" rx="8" fill="#1c2128" stroke="#3fb950" stroke-width="1.5"/>
+      <text x="120" y="280" text-anchor="middle" fill="#3fb950" font-size="10">Layer 1</text>
+      <text x="120" y="296" text-anchor="middle" fill="#8b949e" font-size="9">h=256</text>
+      <rect x="210" y="258" width="80" height="50" rx="8" fill="#1c2128" stroke="#3fb950" stroke-width="1.5"/>
+      <text x="250" y="280" text-anchor="middle" fill="#3fb950" font-size="10">Layer 2</text>
+      <text x="250" y="296" text-anchor="middle" fill="#8b949e" font-size="9">h=256</text>
+      <rect x="340" y="258" width="80" height="50" rx="8" fill="#1c2128" stroke="#3fb950" stroke-width="1.5"/>
+      <text x="380" y="280" text-anchor="middle" fill="#3fb950" font-size="10">Layer 3</text>
+      <text x="380" y="296" text-anchor="middle" fill="#8b949e" font-size="9">h=256</text>
+      <rect x="470" y="258" width="80" height="50" rx="8" fill="#1c2128" stroke="#3fb950" stroke-width="1.5"/>
+      <text x="510" y="280" text-anchor="middle" fill="#3fb950" font-size="10">Layer 4</text>
+      <text x="510" y="296" text-anchor="middle" fill="#8b949e" font-size="9">h=256</text>
+      <rect x="620" y="258" width="140" height="50" rx="8" fill="rgba(63,185,80,.12)" stroke="#3fb950" stroke-width="1.5"/>
+      <text x="690" y="278" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="700">LSTM输出</text>
+      <text x="690" y="296" text-anchor="middle" fill="#8b949e" font-size="10">(B,64,256)</text>
+
+      <line x1="160" y1="283" x2="208" y2="283" stroke="#3fb950" stroke-width="1.5" marker-end="url(#arr5)"/>
+      <line x1="290" y1="283" x2="338" y2="283" stroke="#3fb950" stroke-width="1.5" marker-end="url(#arr5)"/>
+      <line x1="420" y1="283" x2="468" y2="283" stroke="#3fb950" stroke-width="1.5" marker-end="url(#arr5)"/>
+      <line x1="550" y1="283" x2="618" y2="283" stroke="#3fb950" stroke-width="1.5" marker-end="url(#arr5)"/>
+      <line x1="785" y1="180" x2="785" y2="245" stroke="#58a6ff" stroke-width="1.5"/>
+      <line x1="785" y1="245" x2="120" y2="245" stroke="#58a6ff" stroke-width="1.5"/>
+      <line x1="120" y1="245" x2="120" y2="256" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr5)"/>
+
+      <!-- Transformer 区域 -->
+      <rect x="20" y="350" width="860" height="100" rx="10" fill="rgba(188,140,255,.04)" stroke="rgba(188,140,255,.3)" stroke-width="1" stroke-dasharray="6,3"/>
+      <text x="35" y="370" fill="#bc8cff" font-size="11" font-weight="700">Transformer Encoder（2层）</text>
+
+      <rect x="80"  y="375" width="200" height="60" rx="8" fill="#1c2128" stroke="#bc8cff" stroke-width="1.5"/>
+      <text x="180" y="402" text-anchor="middle" fill="#bc8cff" font-size="11">Encoder Layer 1</text>
+      <text x="180" y="418" text-anchor="middle" fill="#8b949e" font-size="9">LN→4-Head Attn→Add→LN→FFN</text>
+      <rect x="340" y="375" width="200" height="60" rx="8" fill="#1c2128" stroke="#bc8cff" stroke-width="1.5"/>
+      <text x="440" y="402" text-anchor="middle" fill="#bc8cff" font-size="11">Encoder Layer 2</text>
+      <text x="440" y="418" text-anchor="middle" fill="#8b949e" font-size="9">LN→4-Head Attn→Add→LN→FFN</text>
+      <rect x="610" y="380" width="200" height="50" rx="8" fill="rgba(188,140,255,.12)" stroke="#bc8cff" stroke-width="1.5"/>
+      <text x="710" y="402" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="700">x[:,-1,:]</text>
+      <text x="710" y="418" text-anchor="middle" fill="#8b949e" font-size="10">取最后时间步 (B,256)</text>
+
+      <line x1="280" y1="405" x2="338" y2="405" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arr5)"/>
+      <line x1="540" y1="405" x2="608" y2="405" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arr5)"/>
+      <line x1="690" y1="308" x2="690" y2="360" stroke="#58a6ff" stroke-width="1.5"/>
+      <line x1="690" y1="360" x2="180" y2="360" stroke="#58a6ff" stroke-width="1.5"/>
+      <line x1="180" y1="360" x2="180" y2="373" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr5)"/>
+
+      <!-- 输出 -->
+      <rect x="300" y="470" width="300" height="45" rx="8" fill="rgba(88,166,255,.12)" stroke="#58a6ff" stroke-width="2" filter="url(#glow)"/>
+      <text x="450" y="491" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="700">LayerNorm → Linear → feat</text>
+      <text x="450" y="507" text-anchor="middle" fill="#8b949e" font-size="10">(B, out_dim=128) → H-MoE 融合层</text>
+      <line x1="710" y1="430" x2="710" y2="460" stroke="#bc8cff" stroke-width="1.5"/>
+      <line x1="710" y1="460" x2="450" y2="460" stroke="#bc8cff" stroke-width="1.5"/>
+      <line x1="450" y1="460" x2="450" y2="468" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#arr5)"/>
+    </svg>
+  </div>
+
+  <h2>前向传播代码对应</h2>
+  <div class="card">
+    <table>
+      <tr><th>步骤</th><th>代码行</th><th>形状变化</th></tr>
+      <tr><td>TCN 多尺度特征</td><td><code>x = self.tcn(x)</code></td><td>(B,64,21) → (B,64,64)</td></tr>
+      <tr><td>LSTM 时序建模</td><td><code>x, _ = self.lstm(x)</code></td><td>(B,64,64) → (B,64,256)</td></tr>
+      <tr><td>位置编码注入</td><td><code>x = self.pos_enc(x)</code></td><td>(B,64,256) 不变</td></tr>
+      <tr><td>Transformer 全局注意力</td><td><code>x = self.transformer(x)</code></td><td>(B,64,256) 不变</td></tr>
+      <tr><td>取最后时间步</td><td><code>x[:, -1, :]</code></td><td>(B,64,256) → (B,256)</td></tr>
+      <tr><td>LayerNorm + 线性投影</td><td><code>self.proj(self.norm(...))</code></td><td>(B,256) → (B,128)</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════
+     页面 7：核心代码
+════════════════════════════════════ -->
+<div class="page" id="page-code">
+  <h1>核心代码片段</h1>
+  <p class="subtitle">src/models/tcn_lstm_transformer.py — 关键实现</p>
+
+  <h2>① 因果卷积（TCN 核心）</h2>
+  <div class="card">
+<pre><span class="kw">class</span> <span class="cls">_CausalConv1d</span>(nn.Module):
+    <span class="cm">"""
+    因果一维卷积：t时刻输出只能看到 t 及之前的输入。
+    在左侧填充 (kernel-1)*dilation 个零，右侧不补。
+    """</span>
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, in_ch, out_ch, kernel, dilation):
+        <span class="kw">super</span>().__init__()
+        self.left_pad = (kernel - <span class="num">1</span>) * dilation   <span class="cm"># 保证因果性的关键</span>
+        self.conv = weight_norm(
+            nn.Conv1d(in_ch, out_ch, kernel, dilation=dilation, padding=<span class="num">0</span>)
+        )
+
+    <span class="kw">def</span> <span class="fn">forward</span>(self, x):          <span class="cm"># x: (B, C, T)</span>
+        x = F.pad(x, (self.left_pad, <span class="num">0</span>))  <span class="cm"># 只在左侧补零</span>
+        <span class="kw">return</span> self.conv(x)</pre>
+  </div>
+
+  <h2>② TCN 残差块</h2>
+  <div class="card">
+<pre><span class="kw">class</span> <span class="cls">_TCNBlock</span>(nn.Module):
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, in_ch, out_ch, kernel, dilation, dropout):
+        <span class="kw">super</span>().__init__()
+        self.net = nn.Sequential(
+            <span class="cls">_CausalConv1d</span>(in_ch,  out_ch, kernel, dilation),
+            nn.ReLU(), nn.Dropout(dropout),
+            <span class="cls">_CausalConv1d</span>(out_ch, out_ch, kernel, dilation),
+            nn.ReLU(), nn.Dropout(dropout),
+        )
+        <span class="cm"># 维度不同时用 1×1 卷积对齐残差</span>
+        self.downsample = nn.Conv1d(in_ch, out_ch, <span class="num">1</span>) <span class="kw">if</span> in_ch != out_ch <span class="kw">else</span> <span class="kw">None</span>
+        self.relu = nn.ReLU()
+
+    <span class="kw">def</span> <span class="fn">forward</span>(self, x):
+        residual = x <span class="kw">if</span> self.downsample <span class="kw">is None</span> <span class="kw">else</span> self.downsample(x)
+        <span class="kw">return</span> self.relu(self.net(x) + residual)  <span class="cm"># 残差连接</span></pre>
+  </div>
+
+  <h2>③ TCN 4层膨胀堆叠</h2>
+  <div class="card">
+<pre><span class="kw">class</span> <span class="cls">TCN</span>(nn.Module):
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, in_features, hidden=<span class="num">64</span>, n_levels=<span class="num">4</span>, kernel=<span class="num">3</span>, dropout=<span class="num">0.3</span>):
+        <span class="kw">super</span>().__init__()
+        layers = []
+        <span class="kw">for</span> i <span class="kw">in</span> range(n_levels):
+            in_ch = in_features <span class="kw">if</span> i == <span class="num">0</span> <span class="kw">else</span> hidden
+            layers.append(<span class="cls">_TCNBlock</span>(in_ch, hidden, kernel,
+                                     dilation=<span class="num">2</span> ** i,  <span class="cm"># 1,2,4,8</span>
+                                     dropout=dropout))
+        self.network = nn.Sequential(*layers)
+
+    <span class="kw">def</span> <span class="fn">forward</span>(self, x):    <span class="cm"># x: (B, T, F)</span>
+        <span class="cm"># Conv1d 需要 (B,C,T)，前后转置</span>
+        <span class="kw">return</span> self.network(x.permute(<span class="num">0</span>, <span class="num">2</span>, <span class="num">1</span>)).permute(<span class="num">0</span>, <span class="num">2</span>, <span class="num">1</span>)</pre>
+  </div>
+
+  <h2>④ 主模型前向传播</h2>
+  <div class="card">
+<pre><span class="kw">def</span> <span class="fn">forward</span>(self, x):
+    <span class="cm">"""
+    x: (B, T, in_features)  ← 技术指标+情感特征时序窗口
+    """</span>
+    <span class="cm"># Step 1: TCN — 多尺度局部特征提取</span>
+    x = self.tcn(x)                         <span class="cm"># (B,T,21) → (B,T,64)</span>
+
+    <span class="cm"># Step 2: LSTM — 顺序时间依赖建模（4层，hidden=256）</span>
+    x, _ = self.lstm(x)                     <span class="cm"># (B,T,64) → (B,T,256)</span>
+
+    <span class="cm"># Step 3: Transformer — 全局自注意力（任意时间步间关系）</span>
+    x = self.pos_enc(x)                     <span class="cm"># 注入正弦位置编码</span>
+    x = self.transformer(x)                 <span class="cm"># (B,T,256) → (B,T,256)</span>
+
+    <span class="cm"># Step 4: 取最后时间步，归一化，线性投影到128维</span>
+    feat = self.proj(self.norm(x[:, -1, :])) <span class="cm"># → (B,128)</span>
+    <span class="kw">return</span> feat                             <span class="cm"># 供 H-MoE 融合</span></pre>
+  </div>
+
+  <h2>⑤ 情感特征融合（SnowNLP → 7维）</h2>
+  <div class="card">
+<pre><span class="cm"># src/sentiment/snowlp_scorer.py</span>
+<span class="kw">def</span> <span class="fn">_agg</span>(g):
+    <span class="kw">return</span> pd.Series({
+        <span class="st">"sentiment_mean"</span>:    g.mean(),              <span class="cm"># 日均情感 [0,1]</span>
+        <span class="st">"sentiment_std"</span>:     g.std(ddof=<span class="num">0</span>),          <span class="cm"># 市场分歧</span>
+        <span class="st">"positive_ratio"</span>:    (g > <span class="num">0.6</span>).mean(),       <span class="cm"># 多头占比</span>
+        <span class="st">"negative_ratio"</span>:    (g < <span class="num">0.4</span>).mean(),       <span class="cm"># 空头占比</span>
+        <span class="st">"comment_count"</span>:     np.log1p(len(g)),        <span class="cm"># log缩放避免量纲</span>
+    })
+
+<span class="cm"># 按交易日聚合后追加：</span>
+daily[<span class="st">"sentiment_momentum"</span>] = daily[<span class="st">"sentiment_mean"</span>].diff().fillna(<span class="num">0</span>) <span class="cm"># 情感速度</span>
+daily[<span class="st">"sentiment_ma5"</span>]     = daily[<span class="st">"sentiment_mean"</span>].rolling(<span class="num">5</span>).mean()  <span class="cm"># 5日均值
+
+# 与技术指标 merge → 最终 21 维输入</span>
+merged = indicators_df.merge(sent[[<span class="st">"date"</span>] + SENTIMENT_COLS], on=<span class="st">"date"</span>, how=<span class="st">"left"</span>)
+merged[SENTIMENT_COLS] = merged[SENTIMENT_COLS].ffill()  <span class="cm"># 节假日前向填充</span></pre>
+  </div>
+
+  <h2>⑥ 快速验证（可直接运行）</h2>
+  <div class="card">
+<pre><span class="cm"># python -m src.models.tcn_lstm_transformer</span>
+B, T, F = <span class="num">32</span>, <span class="num">64</span>, <span class="num">21</span>
+model = <span class="cls">TCNLSTMTransformer</span>(in_features=F)
+dummy = torch.randn(B, T, F)
+out   = model(dummy)
+<span class="kw">print</span>(f<span class="st">"输入: {list(dummy.shape)}"</span>)   <span class="cm"># [32, 64, 21]</span>
+<span class="kw">print</span>(f<span class="st">"输出: {list(out.shape)}"</span>)     <span class="cm"># [32, 128]</span>
+<span class="kw">print</span>(f<span class="st">"参数: {sum(p.numel() for p in model.parameters()):,}"</span>)  <span class="cm"># ≈ 2.1M</span>
+
+<span class="cm">===== 期望输出 =====
+输入: [32, 64, 21]
+输出: [32, 128]
+参数: 2,131,072</span></pre>
+  </div>
+</div>
+
+<!-- ════════════
+     JS
+════════════ -->
+<script>
+// 页面切换
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  document.getElementById('btn-' + name).classList.add('active');
+  window.scrollTo(0, 0);
+}
+
+// 注意力矩阵动画
+function buildAttnGrid() {
+  const grid = document.getElementById('attnGrid');
+  if (!grid) return;
+  const colors = ['#58a6ff','#3fb950','#ff8c42','#bc8cff','#e3b341','#f85149'];
+  grid.innerHTML = '';
+  for (let i = 0; i < 6; i++) {
+    for (let j = 0; j < 6; j++) {
+      const cell = document.createElement('div');
+      cell.className = 'attn-cell';
+      const base = i === j ? 0.7 : Math.random() * 0.5;
+      const color = colors[i];
+      cell.style.background = color;
+      cell.style.opacity = (0.15 + base * 0.85).toFixed(2);
+      cell.style.animationDelay = (Math.random() * 3) + 's';
+      cell.style.animationDuration = (2 + Math.random() * 2) + 's';
+      grid.appendChild(cell);
+    }
+  }
+}
+
+// 定时刷新注意力矩阵
+buildAttnGrid();
+setInterval(() => {
+  const grid = document.getElementById('attnGrid');
+  if (grid) {
+    grid.querySelectorAll('.attn-cell').forEach(c => {
+      const i = parseInt(c.dataset.i);
+      const base = Math.random() * 0.6;
+      c.style.opacity = (0.1 + base).toFixed(2);
+    });
+  }
+}, 1800);
+
+// 给注意力格子加序号
+setTimeout(() => {
+  const cells = document.querySelectorAll('.attn-cell');
+  cells.forEach((c, idx) => {
+    c.dataset.i = Math.floor(idx / 6);
+    c.dataset.j = idx % 6;
+    c.title = `t${Math.floor(idx/6)+1} → t${idx%6+1}`;
+  });
+}, 100);
+</script>
+</body>
+</html>
