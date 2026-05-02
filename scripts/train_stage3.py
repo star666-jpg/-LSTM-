@@ -13,7 +13,7 @@
     python scripts/train_stage3.py --epochs 80 --window 30 --device cuda
 """
 
-import sys, os, argparse, time
+import sys, os, argparse, time, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import yaml
@@ -176,7 +176,8 @@ def evaluate(model, loader, scaler, n_ts_features, device):
         out    = model(ts_x, bert_x)
 
         price_pred = out["price"].squeeze(-1).cpu().numpy()
-        dir_pred   = (torch.sigmoid(out["direction"].squeeze(-1)).cpu().numpy() > 0.5).astype(int)
+        # direction 已是 sigmoid 概率，直接 0.5 阈值
+        dir_pred   = (out["direction"].squeeze(-1).cpu().numpy() > 0.5).astype(int)
 
         preds_norm.extend(price_pred.tolist())
         labels_norm.extend(lp.numpy().tolist())
@@ -278,14 +279,16 @@ def main():
 
     # 对 BERT（已冻结）不传给优化器，减少内存
     opt   = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=w_decay)
-    sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, patience=5, factor=0.5, verbose=True)
+    sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, patience=5, factor=0.5)
 
     mse_loss = nn.MSELoss()
-    bce_loss = nn.BCEWithLogitsLoss()
+    # HMoE 输出 direction 已经过 sigmoid（hmoe.py:223），所以这里用 BCELoss（不再 sigmoid）
+    bce_loss = nn.BCELoss()
 
     best_val_r2  = -np.inf
     best_state   = None
     no_improve   = 0
+    history      = []   # 每个 epoch 的训练 / 验证指标
 
     # ── 训练 ──
     for epoch in range(1, epochs + 1):
@@ -321,6 +324,14 @@ def main():
             f"MAE={val_met['mae']:.2f}  [{time.time()-t0:.1f}s]"
         )
 
+        history.append({
+            "epoch":  epoch,
+            "loss":   avg_loss,
+            "val_r2": val_met["r2"],
+            "val_acc": val_met["acc"],
+            "val_mae": val_met["mae"],
+        })
+
         if val_met["r2"] > best_val_r2:
             best_val_r2 = val_met["r2"]
             best_state  = {k: v.cpu() for k, v in model.state_dict().items()}
@@ -352,11 +363,28 @@ def main():
     print(f"  阶段三（本次+BERT）    R²={test_met['r2']:.4f}  ← 当前")
     print(f"  论文完整模型            R²=0.71")
 
-    # 保存模型
-    os.makedirs("data/processed", exist_ok=True)
-    ckpt_path = "data/processed/stage3_model.pt"
+    # ── 结果归档 ──
+    results_dir = "results/stage3"
+    os.makedirs(results_dir, exist_ok=True)
+
+    ckpt_path = os.path.join(results_dir, "best.pt")
     torch.save({"model_state": best_state, "metrics": test_met}, ckpt_path)
+
+    metrics_path = os.path.join(results_dir, "metrics.json")
+    with open(metrics_path, "w") as f:
+        json.dump({
+            "test":    test_met,
+            "best_val_r2": best_val_r2,
+            "history": history,
+            "config":  {
+                "epochs": epochs, "window": window, "lr": lr,
+                "batch":  batch_sz, "feat_dim": feat_dim,
+                "n_ts_features": n_ts,
+            },
+        }, f, ensure_ascii=False, indent=2)
+
     print(f"\n模型已保存：{ckpt_path}")
+    print(f"指标已保存：{metrics_path}")
 
 
 if __name__ == "__main__":

@@ -15,6 +15,11 @@ checkpoints/
 # 数据（大文件不上传）
 data/raw/*.csv
 data/processed/*.csv
+data/processed/*.npy
+
+# 训练结果（模型权重大，metrics.json 留下来）
+results/**/*.pt
+results/**/*.png
 
 # Jupyter
 .ipynb_checkpoints/
